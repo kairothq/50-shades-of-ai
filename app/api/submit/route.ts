@@ -138,8 +138,8 @@ export async function POST(request: NextRequest) {
         : 0;
     const monthsToGoal = Number((weeksToGoal / 4.33).toFixed(1));
 
-    // Save lead to Redis (fire and forget, don't block the response)
-    saveLeadToRedis({
+    // Save lead to Redis (must await so Vercel doesn't kill it)
+    await saveLeadToRedis({
       email,
       weight,
       height,
