@@ -409,7 +409,7 @@ export default function Home() {
         </p>
         <div className="flex items-center justify-center gap-4 mt-3">
           <a
-            href="https://www.linkedin.com/in/divykairoth/"
+            href="https://www.linkedin.com/in/divy-kairoth/"
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-tertiary hover:text-secondary transition-colors"
@@ -425,9 +425,18 @@ export default function Home() {
           >
             Substack
           </a>
+          <span className="text-tertiary/40">|</span>
+          <a
+            href="https://divykairoth.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-tertiary hover:text-secondary transition-colors"
+          >
+            divykairoth.com
+          </a>
         </div>
         <p className="text-xs text-tertiary/60 mt-3">
-          Built with Claude Code in under 10 minutes
+          Free tool. Calculate your calories. No BS.
         </p>
       </footer>
     </div>
