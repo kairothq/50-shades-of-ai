@@ -1,27 +1,10 @@
 // GET /api/leads?secret=YOUR_SECRET
 //
-// Admin endpoint to list all collected leads from the Notion database.
-// Requires NOTION_API_TOKEN, NOTION_LEADS_DB_ID, and LEADS_ADMIN_SECRET env vars.
+// Admin endpoint to list all collected leads from Upstash Redis.
+// Requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, and LEADS_ADMIN_SECRET env vars.
 
 import { NextRequest, NextResponse } from "next/server";
-
-interface NotionTextContent {
-  plain_text: string;
-}
-
-interface NotionPage {
-  properties: {
-    Email: { title: NotionTextContent[] };
-    Weight: { number: number | null };
-    Height: { number: number | null };
-    Age: { number: number | null };
-    Gender: { select: { name: string } | null };
-    "Maintenance Calories": { number: number | null };
-    "Daily Target": { number: number | null };
-    "Submitted At": { date: { start: string } | null };
-    Source: { select: { name: string } | null };
-  };
-}
+import { Redis } from "@upstash/redis";
 
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get("secret");
@@ -41,70 +24,31 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const token = process.env.NOTION_API_TOKEN;
-  const dbId = process.env.NOTION_LEADS_DB_ID;
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-  if (!token || !dbId) {
+  if (!url || !token) {
     return NextResponse.json(
-      { error: "Notion env vars not configured." },
+      { error: "Redis env vars not configured." },
       { status: 500 }
     );
   }
 
   try {
-    const res = await fetch(
-      `https://api.notion.com/v1/databases/${dbId}/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Notion-Version": "2022-06-28",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sorts: [
-            {
-              property: "Submitted At",
-              direction: "descending",
-            },
-          ],
-          page_size: 100,
-        }),
-      }
+    const redis = new Redis({ url, token });
+
+    const raw = await redis.lrange("foodos-leads", 0, -1);
+
+    const leads = raw.map((entry) =>
+      typeof entry === "string" ? JSON.parse(entry) : entry
     );
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[FoodOS] Notion query error:", res.status, err);
-      return NextResponse.json(
-        { error: "Failed to fetch leads from Notion." },
-        { status: 502 }
-      );
-    }
-
-    const data = await res.json();
-    const leads = data.results.map((page: NotionPage) => ({
-      email:
-        page.properties.Email?.title?.[0]?.plain_text ?? "",
-      weight: page.properties.Weight?.number ?? null,
-      height: page.properties.Height?.number ?? null,
-      age: page.properties.Age?.number ?? null,
-      gender: page.properties.Gender?.select?.name ?? null,
-      maintenanceCalories:
-        page.properties["Maintenance Calories"]?.number ?? null,
-      dailyTarget:
-        page.properties["Daily Target"]?.number ?? null,
-      submittedAt:
-        page.properties["Submitted At"]?.date?.start ?? null,
-      source: page.properties.Source?.select?.name ?? null,
-    }));
 
     return NextResponse.json({
       count: leads.length,
       leads,
     });
   } catch (err) {
-    console.error("[FoodOS] Failed to query leads:", err);
+    console.error("[FoodOS] Failed to read leads:", err);
     return NextResponse.json(
       { error: "Something went wrong." },
       { status: 500 }

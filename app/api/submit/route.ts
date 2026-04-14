@@ -1,21 +1,10 @@
-// FoodOS Calorie Calculator - Lead Storage via Notion
+// FoodOS Calorie Calculator - Lead Storage via Upstash Redis
 //
 // Setup:
-// 1. Create a Notion integration at https://www.notion.so/my-integrations
-// 2. Create a Notion database with these properties:
-//    - Email (title)
-//    - Weight (number)
-//    - Height (number)
-//    - Age (number)
-//    - Gender (select: "male", "female")
-//    - Maintenance Calories (number)
-//    - Daily Target (number)
-//    - Submitted At (date)
-//    - Source (select: "foodos-calculator")
-// 3. Share the database with your integration
-// 4. Set these env vars in .env.local:
-//    NOTION_API_TOKEN=<your integration token>
-//    NOTION_LEADS_DB_ID=<your database id>
+// 1. Create a free Upstash Redis database at https://console.upstash.com
+// 2. Set these env vars in .env.local:
+//    UPSTASH_REDIS_REST_URL=<your url>
+//    UPSTASH_REDIS_REST_TOKEN=<your token>
 
 import { NextRequest, NextResponse } from "next/server";
 
@@ -33,7 +22,7 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-async function saveLeadToNotion(data: {
+async function saveLeadToRedis(data: {
   email: string;
   weight: number;
   height: number;
@@ -42,54 +31,33 @@ async function saveLeadToNotion(data: {
   maintenance: number;
   dailyTarget: number;
 }) {
-  const token = process.env.NOTION_API_TOKEN;
-  const dbId = process.env.NOTION_LEADS_DB_ID;
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-  if (!token || !dbId) {
-    console.warn("[FoodOS] Notion env vars missing, skipping lead storage");
+  if (!url || !token) {
+    console.warn("[FoodOS] Redis env vars missing, skipping lead storage");
     return;
   }
 
   try {
-    const res = await fetch("https://api.notion.com/v1/pages", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        parent: { database_id: dbId },
-        properties: {
-          Email: {
-            title: [{ text: { content: data.email } }],
-          },
-          Weight: { number: data.weight },
-          Height: { number: data.height },
-          Age: { number: data.age },
-          Gender: {
-            select: { name: data.gender },
-          },
-          "Maintenance Calories": { number: data.maintenance },
-          "Daily Target": { number: data.dailyTarget },
-          "Submitted At": {
-            date: { start: new Date().toISOString() },
-          },
-          Source: {
-            select: { name: "foodos-calculator" },
-          },
-        },
-      }),
+    const { Redis } = await import("@upstash/redis");
+    const redis = new Redis({ url, token });
+
+    const lead = JSON.stringify({
+      email: data.email,
+      weight: data.weight,
+      height: data.height,
+      age: data.age,
+      gender: data.gender,
+      maintenance: data.maintenance,
+      dailyTarget: data.dailyTarget,
+      submittedAt: new Date().toISOString(),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[FoodOS] Notion API error:", res.status, err);
-    } else {
-      console.log("[FoodOS] Lead saved to Notion:", data.email);
-    }
+    await redis.lpush("foodos-leads", lead);
+    console.log("[FoodOS] Lead saved to Redis:", data.email);
   } catch (err) {
-    console.error("[FoodOS] Failed to save lead to Notion:", err);
+    console.error("[FoodOS] Failed to save lead to Redis:", err);
   }
 }
 
@@ -170,8 +138,8 @@ export async function POST(request: NextRequest) {
         : 0;
     const monthsToGoal = Number((weeksToGoal / 4.33).toFixed(1));
 
-    // Save lead to Notion (non-blocking, don't fail the request if this errors)
-    saveLeadToNotion({
+    // Save lead to Redis (fire and forget, don't block the response)
+    saveLeadToRedis({
       email,
       weight,
       height,
